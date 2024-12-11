@@ -4,7 +4,7 @@ import numpy as np
 import pickle
 
 # Load the trained model
-with open('model.pkl', 'rb') as file:
+with open('gbm_model.pkl', 'rb') as file:
     model = pickle.load(file)
 
 # Define input fields for the Streamlit app
