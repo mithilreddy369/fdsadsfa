@@ -8,7 +8,7 @@ import lime.lime_tabular
 from sklearn.ensemble import GradientBoostingClassifier
 
 # Load the model
-with open('gbm_model1.pkl', 'rb') as file:
+with open('gbm_model.pkl', 'rb') as file:
     gbm_model = pickle.load(file)
 
 # Load the training data for LIME
