@@ -1,54 +1,104 @@
 import streamlit as st
 import pickle
 import numpy as np
+import shap
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
-from catboost import Pool
+import matplotlib.pyplot as plt
+import lime.lime_tabular
+from sklearn.ensemble import GradientBoostingClassifier
 
 # Load the model
-with open('gbm_model.pkl', 'rb') as file:
+with open('gbm_model1.pkl', 'rb') as file:
     gbm_model = pickle.load(file)
 
-# Feature names and types from training
-cat_features = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
-all_features = [
-    'gender', 'age', 'hypertension', 'heart_disease', 'ever_married', 'work_type', 
-    'Residence_type', 'avg_glucose_level', 'bmi', 'smoking_status', 
-    'age_group_Young_Adult', 'age_group_Adult', 'age_group_Middle_Aged', 'age_group_Senior',
-    'hypertension_heart_disease', 'high_glucose', 'bmi_category_Normal',
-    'bmi_category_Overweight', 'bmi_category_Obese', 'age_hypertension', 
-    'bmi_stroke_interaction', 'high_glucose_heart_disease'
+# Load the training data for LIME
+train_data = pd.read_csv('train_data_for_lime.csv')
+
+# Define feature names
+feature_names = [
+    'gender', 'age', 'hypertension', 'heart_disease', 'ever_married',
+    'work_type', 'Residence_type', 'avg_glucose_level', 'bmi', 'smoking_status'
 ]
 
-# Preprocessing function
-def preprocess_data(data):
-    # Handle missing values for 'bmi' and other features
-    imputer = SimpleImputer(strategy='mean')
-    if 'bmi' in data.columns:
-        data['bmi'] = imputer.fit_transform(data[['bmi']])
+# Prepare training data for LIME
+X_train = train_data[feature_names]
+
+# Create a LIME explainer
+lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+    training_data=X_train.values,
+    feature_names=feature_names,
+    class_names=['no_stroke', 'stroke'],
+    mode='classification'
+)
+
+# Function to predict using the model
+def predict_stroke(features_array, model):
+    if model is not None:
+        return model.predict(features_array)[0]
     else:
-        data['bmi'] = 0
+        st.error("Model is not loaded properly.")
+        return None
 
-    # Encode categorical variables
-    data = pd.get_dummies(data, columns=cat_features, drop_first=True)
+# Function to explain with LIME
+def explain_with_lime(instance, model):
+    if model is None:
+        st.error("Model is not loaded properly.")
+        return
+    
+    def predict_proba_fn(X):
+        return model.predict_proba(X)
+    
+    exp = lime_explainer.explain_instance(
+        data_row=instance,
+        predict_fn=predict_proba_fn
+    )
+    
+    explanation_list = exp.as_list()
+    explanation_df = pd.DataFrame(explanation_list, columns=['feature', 'weight'])
+    
+    # Plot customization with Matplotlib (Stacked Bar Chart)
+    plt.figure(figsize=(7,6))
+    explanation_df = explanation_df.sort_values(by='weight')
+    bars = plt.barh(explanation_df['feature'], explanation_df['weight'], color='skyblue', edgecolor='black')
 
-    # Add missing columns with default values
-    for col in all_features:
-        if col not in data.columns:
-            data[col] = 0
+    for bar in bars:
+        plt.text(
+            bar.get_width() + 0.01,
+            bar.get_y() + bar.get_height()/2,
+            round(bar.get_width(), 2),
+            va='center'
+        )
+    
+    plt.xlabel('Contribution to Prediction')
+    plt.ylabel('Feature')
+    plt.title('LIME Explanation for Instance')
+    plt.grid(axis='x', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    st.pyplot(plt)
 
-    # Align column order with training data
-    data = data[all_features]
-
-    # Scale numerical features
-    numerical_columns = ['age', 'avg_glucose_level', 'bmi']
-    scaler = StandardScaler()
-    data[numerical_columns] = scaler.fit_transform(data[numerical_columns])
-
-    return data
+# Function to explain with SHAP
+def explain_with_shap(instance, model):
+    explainer = shap.Explainer(model)
+    if explainer is not None:
+        shap_values = explainer(instance)
+        fig, ax = plt.subplots()
+        shap.plots.waterfall(shap_values[0])
+        st.pyplot(fig)
+    else:
+        st.error("SHAP explainer not supported for this model.")
 
 # Streamlit app
+st.markdown("""
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .input-group { margin-bottom: 15px; }
+        .prediction-box { padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+        .green { background-color: #28a745; color: white; }
+        .red { background-color: #dc3545; color: white; }
+        .prediction-row { display: flex; justify-content: space-around; }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title('Brain Stroke Prediction App')
 
 # Input form
@@ -83,7 +133,21 @@ with st.form(key='prediction_form'):
     
     submit_button = st.form_submit_button(label='Predict')
 
-# Prediction function
+# Map categorical values to numerical values
+def map_data(data):
+    return {
+        'gender': 0 if data['gender'] == 'Male' else 1,
+        'age': data['age'],
+        'hypertension': data['hypertension'],
+        'heart_disease': data['heart_disease'],
+        'ever_married': 1 if data['ever_married'] == 'Yes' else 0,
+        'work_type': {'Govt_job': 0, 'Never_worked': 1, 'Private': 2, 'Self_employed': 3, 'children': 4}[data['work_type']],
+        'Residence_type': 0 if data['residence_type'] == 'Rural' else 1,
+        'avg_glucose_level': data['avg_glucose_level'],
+        'bmi': data['bmi'],
+        'smoking_status': {'Unknown': 0, 'formerly smoked': 1, 'never smoked': 2, 'smokes': 3}[data['smoking_status']]
+    }
+
 if submit_button:
     input_data = {
         'gender': gender,
@@ -92,27 +156,45 @@ if submit_button:
         'heart_disease': heart_disease,
         'ever_married': ever_married,
         'work_type': work_type,
-        'Residence_type': residence_type,
+        'residence_type': residence_type,
         'avg_glucose_level': avg_glucose_level,
         'bmi': bmi,
         'smoking_status': smoking_status
     }
-
-    # Convert input data to DataFrame
-    data_df = pd.DataFrame([input_data])
-
-    # Preprocess the data
-    preprocessed_data = preprocess_data(data_df)
-
-    # Create CatBoost Pool for categorical features
-    pool = Pool(preprocessed_data, cat_features=[all_features.index(f) for f in cat_features if f in all_features])
-
+    
+    data_mapped = map_data(input_data)
+    
+    features = [
+        data_mapped['gender'],
+        data_mapped['age'],
+        data_mapped['hypertension'],
+        data_mapped['heart_disease'],
+        data_mapped['ever_married'],
+        data_mapped['work_type'],
+        data_mapped['Residence_type'],
+        data_mapped['avg_glucose_level'],
+        data_mapped['bmi'],
+        data_mapped['smoking_status']
+    ]
+    
+    features_array = np.array(features).reshape(1, -1)
+    
+    # Create a DataFrame with feature names
+    features_df = pd.DataFrame(features_array, columns=feature_names)
+    
     # Make predictions
-    prediction = gbm_model.predict(pool)
+    pred = predict_stroke(features_array, gbm_model)
+    
+    if pred is not None:
+        st.write("## Predictions")
+        color_class = 'green' if pred == 0 else 'red'
+        result = 'No Stroke' if pred == 0 else 'Stroke'
+        st.markdown(f'<div class="prediction-box {color_class}">{result}</div>', unsafe_allow_html=True)
 
-    # Display results
-    st.write("## Predictions")
-    color_class = 'green' if prediction[0] == 0 else 'red'
-    result = 'No Stroke' if prediction[0] == 0 else 'Stroke'
-    st.markdown(f'<div class="prediction-box {color_class}">{result}</div>', unsafe_allow_html=True)
+        # SHAP explanation
+        st.write(f"## SHAP Explanation for Gradient Boosting Model")
+        explain_with_shap(features_df, gbm_model)
 
+        # LIME explanation
+        st.write(f"## LIME Explanation for Gradient Boosting Model")
+        explain_with_lime(features_df.iloc[0].values, gbm_model)
