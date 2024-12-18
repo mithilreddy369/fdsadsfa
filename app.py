@@ -1,95 +1,177 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
 import pickle
-from sklearn.preprocessing import StandardScaler
+import numpy as np
+import shap
+import pandas as pd
+import matplotlib.pyplot as plt
+import lime.lime_tabular
 
-# Load the trained GBM model
-with open("gbm_model.pkl", "rb") as file:
+# Load the Gradient Boosting Model
+with open('gbm_model1.pkl', 'rb') as file:
     gbm_model = pickle.load(file)
 
-# Streamlit App
-st.title("Stroke Prediction App")
+# Load the training data for LIME
+train_data = pd.read_csv('train_data_for_lime.csv')
 
-# Input Form
-st.sidebar.header("Input Features")
+# Define feature names
+feature_names = [
+    'gender', 'age', 'hypertension', 'heart_disease', 'ever_married',
+    'work_type', 'Residence_type', 'avg_glucose_level', 'bmi', 'smoking_status'
+]
 
-def user_input_features():
-    age = st.sidebar.slider("Age", 0, 100, 50)
-    hypertension = st.sidebar.selectbox("Hypertension", [0, 1])
-    heart_disease = st.sidebar.selectbox("Heart Disease", [0, 1])
-    avg_glucose_level = st.sidebar.slider("Average Glucose Level", 50.0, 300.0, 100.0)
-    bmi = st.sidebar.slider("BMI", 10.0, 50.0, 25.0)
-    gender = st.sidebar.selectbox("Gender", ["Male", "Female", "Other"])
-    ever_married = st.sidebar.selectbox("Ever Married", ["Yes", "No"])
-    work_type = st.sidebar.selectbox(
-        "Work Type", ["Private", "Self-employed", "Govt_job", "children", "Never_worked"]
+# Prepare training data for LIME
+X_train = train_data[feature_names]
+
+# Create a LIME explainer
+lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+    training_data=X_train.values,
+    feature_names=feature_names,
+    class_names=['no_stroke', 'stroke'],
+    mode='classification'
+)
+
+# Function to predict using the GBM model
+def predict_stroke(features_array):
+    return gbm_model.predict(features_array)[0]
+
+# Function to explain with LIME
+def explain_with_lime(instance):
+    def predict_proba_fn(X):
+        return gbm_model.predict_proba(X)
+
+    exp = lime_explainer.explain_instance(
+        data_row=instance,
+        predict_fn=predict_proba_fn
     )
-    residence_type = st.sidebar.selectbox("Residence Type", ["Urban", "Rural"])
-    smoking_status = st.sidebar.selectbox(
-        "Smoking Status", ["never smoked", "formerly smoked", "smokes"]
-    )
 
-    data = {
-        "age": age,
-        "hypertension": hypertension,
-        "heart_disease": heart_disease,
-        "avg_glucose_level": avg_glucose_level,
-        "bmi": bmi,
-        "gender": gender,
-        "ever_married": ever_married,
-        "work_type": work_type,
-        "Residence_type": residence_type,
-        "smoking_status": smoking_status,
+    explanation_list = exp.as_list()
+    explanation_df = pd.DataFrame(explanation_list, columns=['feature', 'weight'])
+
+    # Plot customization with Matplotlib (Stacked Bar Chart)
+    plt.figure(figsize=(7, 6))
+    explanation_df = explanation_df.sort_values(by='weight')
+    bars = plt.barh(explanation_df['feature'], explanation_df['weight'], color='skyblue', edgecolor='black')
+
+    for bar in bars:
+        plt.text(
+            bar.get_width() + 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            round(bar.get_width(), 2),
+            va='center'
+        )
+
+    plt.xlabel('Contribution to Prediction')
+    plt.ylabel('Feature')
+    plt.title('LIME Explanation for Instance')
+    plt.grid(axis='x', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    st.pyplot(plt)
+
+# Function to explain with SHAP
+def explain_with_shap(instance):
+    explainer = shap.Explainer(gbm_model)
+    shap_values = explainer(instance)
+    fig, ax = plt.subplots()
+    shap.plots.waterfall(shap_values[0])
+    st.pyplot(fig)
+
+# Streamlit app
+st.title('Brain Stroke Prediction App')
+
+# Input form
+with st.form(key='prediction_form'):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        gender = st.selectbox('Gender', ['Male', 'Female'])
+    with col2:
+        age = st.slider('Age', min_value=0, max_value=100, value=20)
+    with col3:
+        hypertension = st.selectbox('Hypertension', [0, 1])
+
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        heart_disease = st.selectbox('Heart Disease', [0, 1])
+    with col5:
+        ever_married = st.selectbox('Ever Married', ['Yes', 'No'])
+    with col6:
+        work_type = st.selectbox('Work Type', ['Govt_job', 'Never_worked', 'Private', 'Self_employed', 'children'])
+
+    col7, col8, col9 = st.columns(3)
+    with col7:
+        residence_type = st.selectbox('Residence Type', ['Rural', 'Urban'])
+    with col8:
+        avg_glucose_level = st.number_input('Average Glucose Level', min_value=0.0, max_value=300.0, value=80.13)
+    with col9:
+        bmi = st.number_input('BMI', min_value=0.0, max_value=100.0, value=23.4)
+
+    col10, col11 = st.columns(2)
+    with col10:
+        smoking_status = st.selectbox('Smoking Status', ['Unknown', 'formerly smoked', 'never smoked', 'smokes'])
+
+    submit_button = st.form_submit_button(label='Predict')
+
+# Map categorical values to numerical values
+def map_data(data):
+    return {
+        'gender': 0 if data['gender'] == 'Male' else 1,
+        'age': data['age'],
+        'hypertension': data['hypertension'],
+        'heart_disease': data['heart_disease'],
+        'ever_married': 1 if data['ever_married'] == 'Yes' else 0,
+        'work_type': {'Govt_job': 0, 'Never_worked': 1, 'Private': 2, 'Self_employed': 3, 'children': 4}[data['work_type']],
+        'Residence_type': 0 if data['residence_type'] == 'Rural' else 1,
+        'avg_glucose_level': data['avg_glucose_level'],
+        'bmi': data['bmi'],
+        'smoking_status': {'Unknown': 0, 'formerly smoked': 1, 'never smoked': 2, 'smokes': 3}[data['smoking_status']]
     }
-    return pd.DataFrame(data, index=[0])
 
-# Collect input features
-data = user_input_features()
+if submit_button:
+    input_data = {
+        'gender': gender,
+        'age': age,
+        'hypertension': hypertension,
+        'heart_disease': heart_disease,
+        'ever_married': ever_married,
+        'work_type': work_type,
+        'residence_type': residence_type,
+        'avg_glucose_level': avg_glucose_level,
+        'bmi': bmi,
+        'smoking_status': smoking_status
+    }
 
-# Preprocessing
-def preprocess_data(data):
-    categorical_columns = [
-        "gender",
-        "ever_married",
-        "work_type",
-        "Residence_type",
-        "smoking_status",
+    data_mapped = map_data(input_data)
+
+    features = [
+        data_mapped['gender'],
+        data_mapped['age'],
+        data_mapped['hypertension'],
+        data_mapped['heart_disease'],
+        data_mapped['ever_married'],
+        data_mapped['work_type'],
+        data_mapped['Residence_type'],
+        data_mapped['avg_glucose_level'],
+        data_mapped['bmi'],
+        data_mapped['smoking_status']
     ]
-    
-    # One-hot encoding
-    data = pd.get_dummies(data, columns=categorical_columns, drop_first=True)
 
-    # Adding missing columns if necessary
-    expected_columns = [
-        "gender_Male", "gender_Other", "ever_married_Yes",
-        "work_type_Never_worked", "work_type_Private",
-        "work_type_Self-employed", "work_type_children",
-        "Residence_type_Urban", "smoking_status_formerly smoked",
-        "smoking_status_never smoked", "smoking_status_smokes"
-    ]
-    for col in expected_columns:
-        if col not in data.columns:
-            data[col] = 0
+    features_array = np.array(features).reshape(1, -1)
 
-    # Scale numerical features
-    numerical_columns = ["age", "avg_glucose_level", "bmi"]
-    scaler = StandardScaler()
-    data[numerical_columns] = scaler.fit_transform(data[numerical_columns])
+    # Create a DataFrame with feature names
+    features_df = pd.DataFrame(features_array, columns=feature_names)
 
-    return data
+    # Make predictions
+    pred = predict_stroke(features_array)
 
-# Preprocess input data
-preprocessed_data = preprocess_data(data)
+    if pred is not None:
+        st.write("## Predictions")
+        color_class = 'green' if pred == 0 else 'red'
+        result = 'No Stroke' if pred == 0 else 'Stroke'
+        st.markdown(f'<div class="prediction-box {color_class}">{result}</div>', unsafe_allow_html=True)
 
-# Make predictions
-prediction = gbm_model.predict(preprocessed_data)
-prediction_proba = gbm_model.predict_proba(preprocessed_data)[:, 1]
+        # SHAP explanation
+        st.write("## SHAP Explanation")
+        explain_with_shap(features_df)
 
-# Display results
-st.subheader("Prediction")
-result = "High Risk of Stroke" if prediction[0] == 1 else "Low Risk of Stroke"
-st.write(result)
-
-st.subheader("Prediction Probability")
-st.write(f"Probability of Stroke: {prediction_proba[0]:.2f}")
+        # LIME explanation
+        st.write("## LIME Explanation")
+        explain_with_lime(features_df.iloc[0].values)
