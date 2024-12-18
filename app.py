@@ -23,7 +23,7 @@ all_features = [
 
 # Preprocessing function
 def preprocess_data(data):
-    # Handle missing values
+    # Handle missing values for 'bmi' and other features
     imputer = SimpleImputer(strategy='mean')
     if 'bmi' in data.columns:
         data['bmi'] = imputer.fit_transform(data[['bmi']])
