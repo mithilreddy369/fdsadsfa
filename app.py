@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 
 # Load the model
-with open('gbm_model1.pkl', 'rb') as file:
+with open('gbm_model.pkl', 'rb') as file:
     gbm_model = pickle.load(file)
 
 # Data preprocessing functions
