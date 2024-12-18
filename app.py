@@ -1,81 +1,54 @@
 import streamlit as st
 import pickle
 import numpy as np
-import shap
 import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
+from catboost import Pool
 
 # Load the model
 with open('gbm_model.pkl', 'rb') as file:
     gbm_model = pickle.load(file)
 
-# Data preprocessing functions
+# Feature names and types from training
+cat_features = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
+all_features = [
+    'gender', 'age', 'hypertension', 'heart_disease', 'ever_married', 'work_type', 
+    'Residence_type', 'avg_glucose_level', 'bmi', 'smoking_status', 
+    'age_group_Young_Adult', 'age_group_Adult', 'age_group_Middle_Aged', 'age_group_Senior',
+    'hypertension_heart_disease', 'high_glucose', 'bmi_category_Normal',
+    'bmi_category_Overweight', 'bmi_category_Obese', 'age_hypertension', 
+    'bmi_stroke_interaction', 'high_glucose_heart_disease'
+]
+
+# Preprocessing function
 def preprocess_data(data):
     # Handle missing values
     imputer = SimpleImputer(strategy='mean')
     if 'bmi' in data.columns:
         data['bmi'] = imputer.fit_transform(data[['bmi']])
     else:
-        data['bmi'] = 0  # Add a default value if 'bmi' is missing
-
-    # Ensure all expected categorical columns are present
-    categorical_columns = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
-    for col in categorical_columns:
-        if col not in data.columns:
-            data[col] = None
+        data['bmi'] = 0
 
     # Encode categorical variables
-    data = pd.get_dummies(data, columns=categorical_columns, drop_first=True)
+    data = pd.get_dummies(data, columns=cat_features, drop_first=True)
 
-    # Feature engineering
-    if 'age' in data.columns:
-        data['age_group'] = pd.cut(data['age'], bins=[0, 18, 35, 50, 65, 100], labels=['Child', 'Young_Adult', 'Adult', 'Middle_Aged', 'Senior'])
-        data = pd.get_dummies(data, columns=['age_group'], drop_first=True)
-    else:
-        data['age'] = 0  # Add a default age if missing
+    # Add missing columns with default values
+    for col in all_features:
+        if col not in data.columns:
+            data[col] = 0
 
-    data['hypertension_heart_disease'] = (data['hypertension'] == 1) & (data['heart_disease'] == 1)
-    data['high_glucose'] = (data['avg_glucose_level'] > 100).astype(int)
-    
-    if 'bmi' in data.columns:
-        data['bmi_category'] = pd.cut(data['bmi'], bins=[0, 18.5, 24.9, 29.9, 40], labels=['Underweight', 'Normal', 'Overweight', 'Obese'])
-        data = pd.get_dummies(data, columns=['bmi_category'], drop_first=True)
-
-    # Additional derived features
-    data['age_hypertension'] = (data['age'] > 50) & (data['hypertension'] == 1)
-    if 'stroke' in data.columns:
-        data['bmi_stroke_interaction'] = ((data.get('bmi_category_Overweight', 0) == 1) | 
-                                          (data.get('bmi_category_Obese', 0) == 1)) & (data['stroke'] == 1)
-    else:
-        data['bmi_stroke_interaction'] = 0
-
-    data['high_glucose_heart_disease'] = (data['high_glucose'] == 1) & (data['heart_disease'] == 1)
+    # Align column order with training data
+    data = data[all_features]
 
     # Scale numerical features
     numerical_columns = ['age', 'avg_glucose_level', 'bmi']
     scaler = StandardScaler()
-    for col in numerical_columns:
-        if col not in data.columns:
-            data[col] = 0  # Add default values for missing numerical columns
     data[numerical_columns] = scaler.fit_transform(data[numerical_columns])
 
     return data
 
 # Streamlit app
-st.markdown("""
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-    <style>
-        .input-group { margin-bottom: 15px; }
-        .prediction-box { padding: 10px; border-radius: 5px; margin-bottom: 10px; }
-        .green { background-color: #28a745; color: white; }
-        .red { background-color: #dc3545; color: white; }
-        .prediction-row { display: flex; justify-content: space-around; }
-    </style>
-""", unsafe_allow_html=True)
-
 st.title('Brain Stroke Prediction App')
 
 # Input form
@@ -110,21 +83,7 @@ with st.form(key='prediction_form'):
     
     submit_button = st.form_submit_button(label='Predict')
 
-# Map categorical values to numerical values
-def map_data(data):
-    return {
-        'gender': 0 if data['gender'] == 'Male' else 1,
-        'age': data['age'],
-        'hypertension': data['hypertension'],
-        'heart_disease': data['heart_disease'],
-        'ever_married': 1 if data['ever_married'] == 'Yes' else 0,
-        'work_type': {'Govt_job': 0, 'Never_worked': 1, 'Private': 2, 'Self_employed': 3, 'children': 4}[data['work_type']],
-        'Residence_type': 0 if data['residence_type'] == 'Rural' else 1,
-        'avg_glucose_level': data['avg_glucose_level'],
-        'bmi': data['bmi'],
-        'smoking_status': {'Unknown': 0, 'formerly smoked': 1, 'never smoked': 2, 'smokes': 3}[data['smoking_status']]
-    }
-
+# Prediction function
 if submit_button:
     input_data = {
         'gender': gender,
@@ -133,7 +92,7 @@ if submit_button:
         'heart_disease': heart_disease,
         'ever_married': ever_married,
         'work_type': work_type,
-        'residence_type': residence_type,
+        'Residence_type': residence_type,
         'avg_glucose_level': avg_glucose_level,
         'bmi': bmi,
         'smoking_status': smoking_status
@@ -142,12 +101,14 @@ if submit_button:
     data_df = pd.DataFrame([input_data])
     preprocessed_data = preprocess_data(data_df)
 
-    # Make predictions
-    prediction = gbm_model.predict(preprocessed_data)
+    # Create CatBoost Pool for categorical features
+    pool = Pool(preprocessed_data, cat_features=[all_features.index(f) for f in cat_features if f in all_features])
 
+    # Make predictions
+    prediction = gbm_model.predict(pool)
+
+    # Display results
     st.write("## Predictions")
     color_class = 'green' if prediction[0] == 0 else 'red'
     result = 'No Stroke' if prediction[0] == 0 else 'Stroke'
     st.markdown(f'<div class="prediction-box {color_class}">{result}</div>', unsafe_allow_html=True)
-
-    st.write("Prediction complete with preprocessed features.")
