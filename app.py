@@ -9,78 +9,57 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 
 # Load the model
-with open('gbm_model.pkl', 'rb') as file:
+with open('gbm_model1.pkl', 'rb') as file:
     gbm_model = pickle.load(file)
 
 # Data preprocessing functions
 def preprocess_data(data):
     # Handle missing values
     imputer = SimpleImputer(strategy='mean')
-    data['bmi'] = imputer.fit_transform(data[['bmi']])
+    if 'bmi' in data.columns:
+        data['bmi'] = imputer.fit_transform(data[['bmi']])
+    else:
+        data['bmi'] = 0  # Add a default value if 'bmi' is missing
+
+    # Ensure all expected categorical columns are present
+    categorical_columns = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
+    for col in categorical_columns:
+        if col not in data.columns:
+            data[col] = None
 
     # Encode categorical variables
-    categorical_columns = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
     data = pd.get_dummies(data, columns=categorical_columns, drop_first=True)
 
     # Feature engineering
-    data['age_group'] = pd.cut(data['age'], bins=[0, 18, 35, 50, 65, 100], labels=['Child', 'Young_Adult', 'Adult', 'Middle_Aged', 'Senior'])
-    data = pd.get_dummies(data, columns=['age_group'], drop_first=True)
+    if 'age' in data.columns:
+        data['age_group'] = pd.cut(data['age'], bins=[0, 18, 35, 50, 65, 100], labels=['Child', 'Young_Adult', 'Adult', 'Middle_Aged', 'Senior'])
+        data = pd.get_dummies(data, columns=['age_group'], drop_first=True)
+    else:
+        data['age'] = 0  # Add a default age if missing
+
     data['hypertension_heart_disease'] = (data['hypertension'] == 1) & (data['heart_disease'] == 1)
     data['high_glucose'] = (data['avg_glucose_level'] > 100).astype(int)
-    data['bmi_category'] = pd.cut(data['bmi'], bins=[0, 18.5, 24.9, 29.9, 40], labels=['Underweight', 'Normal', 'Overweight', 'Obese'])
-    data = pd.get_dummies(data, columns=['bmi_category'], drop_first=True)
+    
+    if 'bmi' in data.columns:
+        data['bmi_category'] = pd.cut(data['bmi'], bins=[0, 18.5, 24.9, 29.9, 40], labels=['Underweight', 'Normal', 'Overweight', 'Obese'])
+        data = pd.get_dummies(data, columns=['bmi_category'], drop_first=True)
 
     # Additional derived features
-    # 1. Age Group: Categorize 'age' into groups (Child, Young_Adult, Adult, Middle_Aged, Senior)
-    data['age_group'] = pd.cut(data['age'], bins=[0, 18, 35, 50, 65, 100], labels=['Child', 'Young_Adult', 'Adult', 'Middle_Aged', 'Senior'])
-    data = pd.get_dummies(data, columns=['age_group'], drop_first=True)
-    
-    # 2. Hypertension & Heart Disease Interaction: Indicator for both hypertension and heart disease
-    data['hypertension_heart_disease'] = (data['hypertension'] == 1) & (data['heart_disease'] == 1)
-    
-    # 3. High Glucose Indicator: Flag for average glucose level greater than 100 (assuming high glucose is a risk factor)
-    data['high_glucose'] = (data['avg_glucose_level'] > 100).astype(int)
-    
-    # 4. BMI Category: Categorize BMI into 'Underweight', 'Normal', 'Overweight', 'Obese'
-    data['bmi_category'] = pd.cut(data['bmi'], bins=[0, 18.5, 24.9, 29.9, 40], labels=['Underweight', 'Normal', 'Overweight', 'Obese'])
-    data = pd.get_dummies(data, columns=['bmi_category'], drop_first=True)
-    
-    # 5. Stroke Risk: Interaction between age group and stroke
-    data['age_group_stroke_risk'] = data['age_group_Adult'] & (data['stroke'] == 1)
-    
-    # 6. Gender and Smoking Status Interaction: Interaction between gender and smoking status
-    data['gender_smoking_interaction'] = data['gender_Male'] & data['smoking_status_smokes']
-    
-    # 7. Ever Married & Smoking Status: Flag for individuals who are married and smoke
-    data['married_smoker'] = (data['ever_married_Yes'] == 1) & (data['smoking_status_smokes'] == 1)
-    
-    # 8. Work Type and Hypertension: Flag for individuals who have hypertension and work in private sector
-    data['work_type_private_hypertension'] = (data['work_type_Private'] == 1) & (data['hypertension'] == 1)
-    
-    # 9. Urban Resident & Stroke: Indicator for individuals who live in urban areas and have had a stroke
-    data['urban_stroke'] = (data['Residence_type_Urban'] == 1) & (data['stroke'] == 1)
-    
-    # 10. Heart Disease and Smoking Status: Flag for individuals with heart disease who smoke
-    data['heart_disease_smoker'] = (data['heart_disease'] == 1) & (data['smoking_status_smokes'] == 1)
-    
-    # 11. Age & Hypertension Interaction: Interaction between age and hypertension (older individuals having hypertension)
     data['age_hypertension'] = (data['age'] > 50) & (data['hypertension'] == 1)
-    
-    # 12. BMI and Stroke Interaction: Flag for individuals who have high BMI (overweight or obese) and have had a stroke
-    data['bmi_stroke_interaction'] = (data['bmi_category_Overweight'] == 1) | (data['bmi_category_Obese'] == 1) & (data['stroke'] == 1)
-    
-    # 13. High Glucose & Heart Disease: Flag for individuals with high glucose and heart disease
+    if 'stroke' in data.columns:
+        data['bmi_stroke_interaction'] = ((data.get('bmi_category_Overweight', 0) == 1) | 
+                                          (data.get('bmi_category_Obese', 0) == 1)) & (data['stroke'] == 1)
+    else:
+        data['bmi_stroke_interaction'] = 0
+
     data['high_glucose_heart_disease'] = (data['high_glucose'] == 1) & (data['heart_disease'] == 1)
-    
-    # 14. Gender & Heart Disease: Flag for individuals who are male and have heart disease
-    data['gender_heart_disease'] = (data['gender_Male'] == 1) & (data['heart_disease'] == 1)
-    
-    # 15. Work Type and Stroke: Flag for individuals working in the private sector and having had a stroke
-    data['work_type_private_stroke'] = (data['work_type_Private'] == 1) & (data['stroke'] == 1)
 
     # Scale numerical features
     numerical_columns = ['age', 'avg_glucose_level', 'bmi']
     scaler = StandardScaler()
+    for col in numerical_columns:
+        if col not in data.columns:
+            data[col] = 0  # Add default values for missing numerical columns
     data[numerical_columns] = scaler.fit_transform(data[numerical_columns])
 
     return data
