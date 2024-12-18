@@ -98,7 +98,10 @@ if submit_button:
         'smoking_status': smoking_status
     }
 
+    # Convert input data to DataFrame
     data_df = pd.DataFrame([input_data])
+
+    # Preprocess the data
     preprocessed_data = preprocess_data(data_df)
 
     # Create CatBoost Pool for categorical features
@@ -112,3 +115,4 @@ if submit_button:
     color_class = 'green' if prediction[0] == 0 else 'red'
     result = 'No Stroke' if prediction[0] == 0 else 'Stroke'
     st.markdown(f'<div class="prediction-box {color_class}">{result}</div>', unsafe_allow_html=True)
+
