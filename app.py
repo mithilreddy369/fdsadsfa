@@ -1,81 +1,31 @@
-import streamlit as st
-import pickle
-import numpy as np
-import shap
 import pandas as pd
+import numpy as np
+import pickle
+import streamlit as st
 import matplotlib.pyplot as plt
-import lime.lime_tabular
+from sklearn.preprocessing import StandardScaler
+from lime.lime_tabular import LimeTabularExplainer
 
-# Load the Gradient Boosting Model
+# Load the model
 with open('gbm_model.pkl', 'rb') as file:
-    gbm_model = pickle.load(file)
+    model = pickle.load(file)
 
-# Load the training data for LIME
-train_data = pd.read_csv('train_data_for_lime.csv')
-
-# Define feature names
-feature_names = [
-    'gender', 'age', 'hypertension', 'heart_disease', 'ever_married',
-    'work_type', 'Residence_type', 'avg_glucose_level', 'bmi', 'smoking_status'
-]
-
-# Prepare training data for LIME
-X_train = train_data[feature_names]
-
-# Create a LIME explainer
-lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-    training_data=X_train.values,
-    feature_names=feature_names,
-    class_names=['no_stroke', 'stroke'],
-    mode='classification'
-)
-
-# Function to predict using the GBM model
-def predict_stroke(features_array):
-    return gbm_model.predict(features_array)[0]
-
-# Function to explain with LIME
-def explain_with_lime(instance):
-    def predict_proba_fn(X):
-        return gbm_model.predict_proba(X)
-
-    exp = lime_explainer.explain_instance(
-        data_row=instance,
-        predict_fn=predict_proba_fn
-    )
-
-    explanation_list = exp.as_list()
-    explanation_df = pd.DataFrame(explanation_list, columns=['feature', 'weight'])
-
-    # Plot customization with Matplotlib (Stacked Bar Chart)
-    plt.figure(figsize=(7, 6))
-    explanation_df = explanation_df.sort_values(by='weight')
-    bars = plt.barh(explanation_df['feature'], explanation_df['weight'], color='skyblue', edgecolor='black')
-
-    for bar in bars:
-        plt.text(
-            bar.get_width() + 0.01,
-            bar.get_y() + bar.get_height() / 2,
-            round(bar.get_width(), 2),
-            va='center'
-        )
-
-    plt.xlabel('Contribution to Prediction')
-    plt.ylabel('Feature')
-    plt.title('LIME Explanation for Instance')
-    plt.grid(axis='x', linestyle='--', alpha=0.7)
-    plt.tight_layout()
-    st.pyplot(plt)
-
-# Function to explain with SHAP
-def explain_with_shap(instance):
-    explainer = shap.Explainer(gbm_model)
-    shap_values = explainer(instance)
-    fig, ax = plt.subplots()
-    shap.plots.waterfall(shap_values[0])
-    st.pyplot(fig)
+# Load the scaler
+with open('scaler.pkl', 'rb') as scaler_file:
+    scaler = pickle.load(scaler_file)
 
 # Streamlit app
+st.markdown("""
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .input-group { margin-bottom: 15px; }
+        .prediction-box { padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+        .green { background-color: #28a745; color: white; }
+        .red { background-color: #dc3545; color: white; }
+        .prediction-row { display: flex; justify-content: space-around; }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title('Brain Stroke Prediction App')
 
 # Input form
@@ -107,71 +57,107 @@ with st.form(key='prediction_form'):
     col10, col11 = st.columns(2)
     with col10:
         smoking_status = st.selectbox('Smoking Status', ['Unknown', 'formerly smoked', 'never smoked', 'smokes'])
-
+    
     submit_button = st.form_submit_button(label='Predict')
 
-# Map categorical values to numerical values
-def map_data(data):
-    return {
-        'gender': 0 if data['gender'] == 'Male' else 1,
-        'age': data['age'],
-        'hypertension': data['hypertension'],
-        'heart_disease': data['heart_disease'],
-        'ever_married': 1 if data['ever_married'] == 'Yes' else 0,
-        'work_type': {'Govt_job': 0, 'Never_worked': 1, 'Private': 2, 'Self_employed': 3, 'children': 4}[data['work_type']],
-        'Residence_type': 0 if data['residence_type'] == 'Rural' else 1,
-        'avg_glucose_level': data['avg_glucose_level'],
-        'bmi': data['bmi'],
-        'smoking_status': {'Unknown': 0, 'formerly smoked': 1, 'never smoked': 2, 'smokes': 3}[data['smoking_status']]
-    }
-
 if submit_button:
-    input_data = {
-        'gender': gender,
-        'age': age,
-        'hypertension': hypertension,
-        'heart_disease': heart_disease,
-        'ever_married': ever_married,
-        'work_type': work_type,
-        'residence_type': residence_type,
-        'avg_glucose_level': avg_glucose_level,
-        'bmi': bmi,
-        'smoking_status': smoking_status
-    }
+    # Prepare input data for prediction
+    data = pd.DataFrame({
+        'id': [120],  # Replace with a unique ID
+        'gender': [gender],
+        'age': [age],
+        'hypertension': [hypertension],
+        'heart_disease': [heart_disease],
+        'ever_married': [ever_married],
+        'work_type': [work_type],
+        'Residence_type': [residence_type],
+        'avg_glucose_level': [avg_glucose_level],
+        'bmi': [bmi],
+        'smoking_status': [smoking_status]
+    })
 
-    data_mapped = map_data(input_data)
+    # Preprocessing
+    categorical_columns = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
+    data = pd.get_dummies(data, columns=categorical_columns, drop_first=True)
 
-    features = [
-        data_mapped['gender'],
-        data_mapped['age'],
-        data_mapped['hypertension'],
-        data_mapped['heart_disease'],
-        data_mapped['ever_married'],
-        data_mapped['work_type'],
-        data_mapped['Residence_type'],
-        data_mapped['avg_glucose_level'],
-        data_mapped['bmi'],
-        data_mapped['smoking_status']
+    # Create new features
+    data['age_group'] = pd.cut(data['age'], bins=[0, 18, 35, 50, 65, 100], labels=['Child', 'Young_Adult', 'Adult', 'Middle_Aged', 'Senior'])
+    data = pd.get_dummies(data, columns=['age_group'], drop_first=True)
+
+    data['hypertension_heart_disease'] = (data['hypertension'] == 1) & (data['heart_disease'] == 1)
+    data['high_glucose'] = (data['avg_glucose_level'] > 100).astype(int)
+
+    data['bmi_category'] = pd.cut(data['bmi'], bins=[0, 18.5, 24.9, 29.9, 40], labels=['Underweight', 'Normal', 'Overweight', 'Obese'])
+    data = pd.get_dummies(data, columns=['bmi_category'], drop_first=True)
+
+    # Ensure missing columns are handled
+    missing_columns = set(model.feature_names_) - set(data.columns)
+    for col in missing_columns:
+        data[col] = 0
+
+    # Ensure the data matches the model's expected features
+    data = data[model.feature_names_]
+
+    # Scale numerical columns
+    numerical_columns = ['age', 'avg_glucose_level', 'bmi']
+    data[numerical_columns] = scaler.transform(data[numerical_columns])
+
+    # Prediction
+    prediction = model.predict(data)
+    probability = model.predict_proba(data)[:, 1]
+
+    # Output
+    if prediction == 1:
+        st.markdown("<div class='prediction-box green'>Prediction: Stroke</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='prediction-box red'>Prediction: No Stroke</div>", unsafe_allow_html=True)
+    
+    st.write(f"Probability of Stroke: {probability[0]:.2f}")
+
+    # LIME explanation
+    train_data = pd.read_csv('train_data_for_lime.csv')
+    X_train = train_data[model.feature_names_]
+    categorical_features = [
+        X_train.columns.get_loc(col)
+        for col in ['gender_Male', 'ever_married_Yes', 'work_type_Private', 'Residence_type_Urban', 'smoking_status_smokes']
+        if col in X_train.columns
     ]
+    
+    lime_explainer = LimeTabularExplainer(
+        training_data=X_train.values,
+        feature_names=model.feature_names_,
+        class_names=['No Stroke', 'Stroke'],
+        categorical_features=categorical_features,
+        mode='classification',
+        discretize_continuous=True
+    )
 
-    features_array = np.array(features).reshape(1, -1)
+    # Generate explanation for a single instance
+    instance = data.iloc[0].values
+    exp = lime_explainer.explain_instance(
+        data_row=instance,
+        predict_fn=model.predict_proba
+    )
 
-    # Create a DataFrame with feature names
-    features_df = pd.DataFrame(features_array, columns=feature_names)
+    explanation_list = exp.as_list()
+    explanation_df = pd.DataFrame(explanation_list, columns=['feature', 'weight'])
 
-    # Make predictions
-    pred = predict_stroke(features_array)
+    # Plot explanation using Streamlit
+    fig, ax = plt.subplots(figsize=(7, 6))
+    explanation_df = explanation_df.sort_values(by='weight')
+    bars = ax.barh(explanation_df['feature'], explanation_df['weight'], color='skyblue', edgecolor='black')
 
-    if pred is not None:
-        st.write("## Predictions")
-        color_class = 'green' if pred == 0 else 'red'
-        result = 'No Stroke' if pred == 0 else 'Stroke'
-        st.markdown(f'<div class="prediction-box {color_class}">{result}</div>', unsafe_allow_html=True)
+    # Add text annotations for bar values
+    for bar in bars:
+        ax.text(
+            bar.get_width() + 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            round(bar.get_width(), 2),
+            va='center'
+        )
 
-        # SHAP explanation
-        st.write("## SHAP Explanation")
-        explain_with_shap(features_df)
-
-        # LIME explanation
-        st.write("## LIME Explanation")
-        explain_with_lime(features_df.iloc[0].values)
+    ax.set_xlabel('Contribution to Prediction')
+    ax.set_ylabel('Feature')
+    ax.set_title('LIME Explanation for Instance')
+    ax.grid(axis='x', linestyle='--', alpha=0.7)
+    st.pyplot(fig)
