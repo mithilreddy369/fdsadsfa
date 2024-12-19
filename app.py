@@ -142,22 +142,31 @@ if submit_button:
     explanation_list = exp.as_list()
     explanation_df = pd.DataFrame(explanation_list, columns=['feature', 'weight'])
 
-    # Plot explanation using Streamlit
+    # Cumulative Feature Importance Plot
+    explanation_df_sorted = explanation_df.sort_values(by='weight', ascending=False)
+    explanation_df_sorted['cumulative_weight'] = explanation_df_sorted['weight'].cumsum()
+
     fig, ax = plt.subplots(figsize=(7, 6))
-    explanation_df = explanation_df.sort_values(by='weight')
-    bars = ax.barh(explanation_df['feature'], explanation_df['weight'], color='skyblue', edgecolor='black')
+    ax.plot(explanation_df_sorted['feature'], explanation_df_sorted['cumulative_weight'], marker='o', color='teal')
+    ax.set_xlabel('Feature')
+    ax.set_ylabel('Cumulative Contribution to Prediction')
+    ax.set_title('Cumulative Feature Importance')
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.xticks(rotation=90)
+    st.pyplot(fig)
 
-    # Add text annotations for bar values
-    for bar in bars:
-        ax.text(
-            bar.get_width() + 0.01,
-            bar.get_y() + bar.get_height() / 2,
-            round(bar.get_width(), 2),
-            va='center'
-        )
+    # Pie Chart for Positive Prediction Contribution
+    positive_weights = explanation_df[explanation_df['weight'] > 0]
+    positive_weights_sum = positive_weights['weight'].sum()
+    positive_weights['percentage'] = (positive_weights['weight'] / positive_weights_sum) * 100
 
-    ax.set_xlabel('Contribution to Prediction')
-    ax.set_ylabel('Feature')
-    ax.set_title('LIME Explanation for Instance')
-    ax.grid(axis='x', linestyle='--', alpha=0.7)
+    fig, ax = plt.subplots(figsize=(7, 7))
+    ax.pie(
+        positive_weights['percentage'],
+        labels=positive_weights['feature'],
+        autopct='%1.1f%%',
+        startangle=140,
+        colors=plt.cm.tab20.colors
+    )
+    ax.set_title('Feature Contribution to Positive Prediction')
     st.pyplot(fig)
