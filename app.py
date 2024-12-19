@@ -141,7 +141,27 @@ if submit_button:
 
     explanation_list = exp.as_list()
     explanation_df = pd.DataFrame(explanation_list, columns=['feature', 'weight'])
+    
+    # Plot explanation using Streamlit
+    fig, ax = plt.subplots(figsize=(7, 6))
+    explanation_df = explanation_df.sort_values(by='weight')
+    bars = ax.barh(explanation_df['feature'], explanation_df['weight'], color='skyblue', edgecolor='black')
 
+    # Add text annotations for bar values
+    for bar in bars:
+        ax.text(
+            bar.get_width() + 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            round(bar.get_width(), 2),
+            va='center'
+        )
+
+    ax.set_xlabel('Contribution to Prediction')
+    ax.set_ylabel('Feature')
+    ax.set_title('LIME Explanation for Instance')
+    ax.grid(axis='x', linestyle='--', alpha=0.7)
+    st.pyplot(fig)
+    
     # Cumulative Feature Importance Plot
     explanation_df_sorted = explanation_df.sort_values(by='weight', ascending=False)
     explanation_df_sorted['cumulative_weight'] = explanation_df_sorted['weight'].cumsum()
