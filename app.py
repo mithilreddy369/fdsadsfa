@@ -165,7 +165,7 @@ if submit_button:
     train_data = pd.read_csv('train_data_for_lime.csv')
 
     # Define feature names for LIME
-    X_train = train_data[model.feature_names_]
+    X_train = train_data[feature_names]
 
     # Identify categorical feature indices for LIME
     categorical_features = [
