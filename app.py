@@ -10,7 +10,7 @@ import shap
 # Load the model and scaler
 @st.cache_resource
 def load_model_and_scaler():
-    with open('gbm_model.pkl', 'rb') as file:
+    with open('xgb_model.pkl', 'rb') as file:
         model = pickle.load(file)
     with open('scaler.pkl', 'rb') as scaler_file:
         scaler = pickle.load(scaler_file)
@@ -85,30 +85,73 @@ if submit_button:
     categorical_columns = ['gender', 'ever_married', 'work_type', 'Residence_type', 'smoking_status']
     data = pd.get_dummies(data, columns=categorical_columns, drop_first=True)
 
-    data['age_group'] = pd.cut(data['age'], bins=[0, 18, 35, 50, 65, 100], labels=['Child', 'Young_Adult', 'Adult', 'Middle_Aged', 'Senior'])
-    data = pd.get_dummies(data, columns=['age_group'], drop_first=True)
+    try:
+        # 1. Age Category (Age Group)
+        data['age_group'] = pd.cut(data['age'], bins=[0, 30, 50, 70, 100], labels=['Young', 'Middle-aged', 'Senior', 'Elderly'])
+    
+        # 2. Glucose Level to BMI Ratio (Health Indicator)
+        data['glucose_bmi_ratio'] = data['avg_glucose_level'] / data['bmi']
+    
+        # 3. Health Risk Score (Hypertension + Heart Disease)
+        data['health_risk_score'] = data['hypertension'] + data['heart_disease']
+    
+        # 4. Work Type and Smoking Status Interaction
+        if 'smoking_status' in data.columns:
+            data['work_smoking_interaction'] = data['work_type_Private'].astype(int) * data['smoking_status'].map({
+                'smokes': 1, 'never smoked': 0, 'formerly smoked': 0, 'Unknown': 0
+            }).astype(int)
+    
+        # 5. Residence and Smoking Interaction (Urban Lifestyle)
+        if 'smoking_status' in data.columns:
+            data['urban_smoking_interaction'] = data['Residence_type_Urban'].astype(int) * data['smoking_status'].map({
+                'smokes': 1, 'never smoked': 0, 'formerly smoked': 0, 'Unknown': 0
+            }).astype(int)
+    
+        # 6. BMI and Age Interaction (Age-Related Obesity Risk)
+        data['age_bmi_interaction'] = data['age'] * data['bmi']
+    
+        # 7. Body Mass Index (BMI) Categorization
+        data['bmi_category'] = pd.cut(data['bmi'], bins=[0, 18.5, 24.9, 29.9, 40, 100], labels=['Underweight', 'Normal', 'Overweight', 'Obese', 'Severely Obese'])
+    
+        # 8. Interaction between Gender and Smoking Status
+        if 'smoking_status' in data.columns:
+            data['gender_smoking_interaction'] = data['gender_Male'].astype(int) * data['smoking_status'].map({
+                'smokes': 1, 'never smoked': 0, 'formerly smoked': 0, 'Unknown': 0
+            }).astype(int)
+    
+        # 9. Average Glucose Level Category
+        data['glucose_level_category'] = pd.cut(data['avg_glucose_level'], bins=[0, 70, 100, 140, 200, 500], labels=['Low', 'Normal', 'High', 'Very High', 'Extremely High'])
+    
+        # Create dummy variables for categorical columns
+        data = pd.get_dummies(data, columns=['age_group', 'glucose_level_category', 'bmi_category'], drop_first=True)
 
-    data['hypertension_heart_disease'] = (data['hypertension'] == 1) & (data['heart_disease'] == 1)
-    data['high_glucose'] = (data['avg_glucose_level'] > 100).astype(int)
-
-    data['bmi_category'] = pd.cut(data['bmi'], bins=[0, 18.5, 24.9, 29.9, 40], labels=['Underweight', 'Normal', 'Overweight', 'Obese'])
-    data = pd.get_dummies(data, columns=['bmi_category'], drop_first=True)
-
+    except Exception as e:
+        print(f"Error during data preprocessing: {e}")
     # Ensure missing columns are handled
     missing_columns = set(model.feature_names_) - set(data.columns)
     for col in missing_columns:
         data[col] = 0
 
-    # Ensure the data matches the model's expected features
-    data = data[model.feature_names_]
-
+    # Manually get the feature names from the model (from the booster attribute)
+    feature_names = model.get_booster().feature_names
+    
+    # Ensure that all columns are in the input data
+    missing_columns = set(feature_names) - set(data.columns)
+    for col in missing_columns:
+        data[col] = 0
+    
+    # Ensure the order of columns matches the model's expected order
+    data = data[feature_names]
+    
     # Scale numerical columns
-    numerical_columns = ['age', 'avg_glucose_level', 'bmi']
+    numerical_columns = ['age', 'avg_glucose_level', 'bmi', 'glucose_bmi_ratio', 'age_bmi_interaction']
     data[numerical_columns] = scaler.transform(data[numerical_columns])
-
+    
     # Prediction
     prediction = model.predict(data)
     probability = model.predict_proba(data)[:, 1]
+    threshold = 0.001
+    thresholded_prediction = (probability >= threshold).astype(int)
 
     # Display prediction result
     st.markdown("""
@@ -116,7 +159,7 @@ if submit_button:
             <h3>Prediction Result</h3>
             <p><strong>Stroke Prediction:</strong> {} (Probability: {:.2f})</p>
         </div>
-    """.format("Stroke" if prediction[0] == 1 else "No Stroke", probability[0]), unsafe_allow_html=True)
+    """.format("Stroke" if thresholded_prediction[0] == 1 else "No Stroke"), unsafe_allow_html=True)
 
     # Load training data for LIME (assuming 'train_data_for_lime.csv' exists)
     train_data = pd.read_csv('train_data_for_lime.csv')
