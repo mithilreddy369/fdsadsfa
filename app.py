@@ -88,19 +88,60 @@ if st.button("Predict"):
     st.write(f"Prediction: {'Stroke' if prediction == 1 else 'No Stroke'}")
     st.write(f"Probability of Stroke: {probability:.4f}")
 
-    # LIME explanation
+    # Choose an instance from the test set to explain
+    instance_idx = st.slider('Select Instance Index', 0, len(X_test) - 1, 0)
+    instance = X_test.iloc[instance_idx]
+    
+    # Create LimeTabularExplainer object
     explainer = lime.lime_tabular.LimeTabularExplainer(
-        X_train_final.values,  # Replace X_train_final with your training data
-        feature_names=X_train_final.columns.tolist(),  # Replace X_train_final with your training data
-        class_names=['No Stroke', 'Stroke'],
+        X_train_final.values,  # Training data
+        feature_names=X_train_final.columns.tolist(),  # Feature names
+        class_names=['No Stroke', 'Stroke'],  # Class names
         discretize_continuous=True
     )
+    
+    # Explain the instance's prediction
     explanation = explainer.explain_instance(
-        data_X.values[0], loaded_model.predict_proba, num_features=len(X_train_final.columns)
+        instance.values, loaded_model.predict_proba, num_features=len(X_train_final.columns)
     )
-
-    # Display the explanation as a pyplot figure
-    explanation.as_pyplot_figure()
+    
+    # 1. Contribution Features Bar Chart
+    st.subheader('1. Feature Contributions Bar Chart')
+    fig = explanation.as_pyplot_figure()
+    plt.title('Feature Contributions for Stroke Prediction (LIME)')
+    st.pyplot(fig)
+    
+    # 2. Cumulative Feature Importance
+    st.subheader('2. Cumulative Feature Importance')
+    feature_importance = explanation.as_list()
+    feature_names = [feature[0] for feature in feature_importance]
+    feature_contributions = [abs(feature[1]) for feature in feature_importance]
+    
+    cumulative_importance = np.cumsum(feature_contributions)
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(feature_names, cumulative_importance, marker='o')
+    plt.xlabel('Features')
+    plt.ylabel('Cumulative Importance')
+    plt.title('Cumulative Feature Importance (LIME)')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    st.pyplot(plt)
+    
+    # 3. Pie Chart (Top 5 features and the rest as "Others")
+    st.subheader('3. Top 5 Features Contributions (Pie Chart)')
+    
+    top_n = 5
+    top_features = feature_names[:top_n]
+    top_contributions = feature_contributions[:top_n]
+    other_contributions = sum(feature_contributions[top_n:])
+    top_features.append('Others')
+    top_contributions.append(other_contributions)
+    
+    plt.figure(figsize=(8, 8))
+    plt.pie(top_contributions, labels=top_features, autopct='%1.1f%%', startangle=90)
+    plt.title('Top Features Contributions (LIME)')
+    plt.axis('equal')
     st.pyplot(plt)
 
 # Add a placeholder for your training data (X_train_final)
