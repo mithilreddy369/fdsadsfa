@@ -8,7 +8,10 @@ import numpy as np
 
 # Load the pre-trained GBM model
 with open('gbm_model.pkl', 'rb') as f:
-    loaded_model = joblib.load('gbm_model.pkl')
+    loaded_model = joblib.load(f)
+
+# Load training data for LIME
+X_train_final = pd.read_csv('train_data_for_lime.csv')  # Replace with the actual path if necessary
 
 # Sample Input Data (replace with Streamlit input fields)
 data = pd.DataFrame({
@@ -38,7 +41,6 @@ residence_type = st.selectbox("Residence Type", ["Urban", "Rural"])
 avg_glucose_level = st.number_input("Average Glucose Level", min_value=0.0, value=100.51)
 bmi = st.number_input("BMI", min_value=0.0, value=20.3)
 smoking_status = st.selectbox("Smoking Status", ["formerly smoked", "never smoked", "smokes", "Unknown"])
-
 
 # Update the data DataFrame with user inputs
 data = pd.DataFrame({
@@ -89,8 +91,8 @@ if st.button("Predict"):
     st.write(f"Probability of Stroke: {probability:.4f}")
 
     # Choose an instance from the test set to explain
-    instance_idx = st.slider('Select Instance Index', 0, len(X_test) - 1, 0)
-    instance = X_test.iloc[instance_idx]
+    instance_idx = st.slider('Select Instance Index', 0, len(X_train_final) - 1, 0)
+    instance = X_train_final.iloc[instance_idx]
     
     # Create LimeTabularExplainer object
     explainer = lime.lime_tabular.LimeTabularExplainer(
@@ -143,6 +145,3 @@ if st.button("Predict"):
     plt.title('Top Features Contributions (LIME)')
     plt.axis('equal')
     st.pyplot(plt)
-
-# Add a placeholder for your training data (X_train_final)
-X_train_final = pd.DataFrame()  # Replace with your actual training data
