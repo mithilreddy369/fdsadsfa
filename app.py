@@ -128,17 +128,14 @@ if submit_button:
     except Exception as e:
         print(f"Error during data preprocessing: {e}")
     # Ensure missing columns are handled
-    missing_columns = set(model.feature_names_) - set(data.columns)
-    for col in missing_columns:
-        data[col] = 0
-
     # Manually get the feature names from the model (from the booster attribute)
-    feature_names = feature_names = model.feature_names_in_
-    
+    feature_names = model.get_booster().feature_names
+
     # Ensure that all columns are in the input data
-    missing_columns = set(model.feature_names_in_) - set(data.columns)
+    missing_columns = set(feature_names) - set(data.columns)
     for col in missing_columns:
         data[col] = 0
+    
     
     # Ensure the order of columns matches the model's expected order
     data = data[feature_names]
