@@ -133,7 +133,7 @@ if submit_button:
         data[col] = 0
 
     # Manually get the feature names from the model (from the booster attribute)
-    feature_names = model.get_booster().feature_names
+    feature_names = feature_names = model.feature_names_in_
     
     # Ensure that all columns are in the input data
     missing_columns = set(feature_names) - set(data.columns)
