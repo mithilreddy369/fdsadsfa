@@ -136,7 +136,7 @@ if submit_button:
     feature_names = feature_names = model.feature_names_in_
     
     # Ensure that all columns are in the input data
-    missing_columns = set(feature_names) - set(data.columns)
+    missing_columns = set(model.feature_names_in_) - set(data.columns)
     for col in missing_columns:
         data[col] = 0
     
