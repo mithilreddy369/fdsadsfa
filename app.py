@@ -104,11 +104,54 @@ if st.button("Predict"):
     st.write(f"Probability of Stroke: {probability:.4f}")
 
 
-    # LIME explanation
-    explanation = explainer.explain_instance(
-        data_row=np.array(input_data.iloc[0]),  
-        predict_fn=loaded_model.predict_proba,
-        num_features=len(feature_names)
-    )
-    explanation.as_pyplot_figure(label=1)
-    st.pyplot(plt) #display LIME plot using streamlit
+st.title("LIME Visualization")
+
+# 1) Bar chart
+st.header("LIME - Bar Chart")
+if explanation:
+    fig, ax = plt.subplots()
+    explanation.as_pyplot_figure(label=1)  # label=1 for positive class
+    ax.set_title("LIME - Bar Chart")
+    st.pyplot(fig)
+
+# Get feature importances from the explanation
+if explanation:
+    importances = explanation.as_list()
+
+    # Sort features and cumulative values based on importance
+    sorted_features = [item[0] for item in importances]
+    sorted_cumulative_values = np.cumsum([abs(item[1]) for item in importances])
+
+    # 2) Line chart for cumulative importance
+    st.header("LIME - Cumulative Feature Importance")
+    fig, ax = plt.subplots()
+    ax.plot(sorted_features, sorted_cumulative_values, marker="o", linestyle="-")
+    ax.set_title("LIME - Cumulative Feature Importance")
+    ax.set_xlabel("Features (Sorted by Importance)")
+    ax.set_ylabel("Cumulative Importance")
+    ax.tick_params(axis="x", rotation=90, labelsize=8)
+    plt.tight_layout()
+    st.pyplot(fig)
+
+# 3) Pie chart
+def plot_lime_pie(explanation, top_n=5):
+    importances = explanation.as_list()
+    features = [item[0] for item in importances]
+    values = [abs(item[1]) for item in importances]  # Use absolute values for pie chart
+
+    top_features = features[:top_n]
+    top_values = values[:top_n]
+    other_value = sum(values[top_n:])
+
+    top_features.append("Others")
+    top_values.append(other_value)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.pie(top_values, labels=top_features, autopct="%1.1f%%", startangle=90)
+    ax.set_title("LIME - Feature Importance (Pie Chart)")
+    ax.axis("equal")  # Equal aspect ratio ensures that pie is drawn as a circle.
+    st.pyplot(fig)
+
+if explanation:
+    st.header("LIME - Feature Importance (Pie Chart)")
+    plot_lime_pie(explanation)
